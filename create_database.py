@@ -1,5 +1,5 @@
-
 import sqlite3
+from datetime import datetime
 
 def connect_db():
     return sqlite3.connect('school.db')
@@ -38,29 +38,48 @@ def create_tables():
     conn.commit()
     conn.close()
 
+def validate_date(date_text):
+    try:
+        datetime.strptime(date_text, '%Y-%m-%d')
+        return True
+    except ValueError:
+        print("Error: Date must be in the format YYYY-MM-DD.")
+        return False
 
 def add_student(student_id, first_name, last_name, age, grade, registration_date):
+    if not validate_date(registration_date):
+        return
+
     conn = connect_db()
     cursor = conn.cursor()
-    
-    # Check if student_id already exists
+
+    # Ensure unique student_id only
     cursor.execute('SELECT student_id FROM students WHERE student_id = ?', (student_id,))
     if cursor.fetchone():
         print(f"Error: Student ID {student_id} already exists. Please choose a different ID.")
         conn.close()
         return
-    
+
     # Insert student into the students table
     cursor.execute('''
     INSERT INTO students (student_id, first_name, last_name, age, grade, registration_date)
     VALUES (?, ?, ?, ?, ?, ?)''', (student_id, first_name, last_name, age, grade, registration_date))
     conn.commit()
 
+    # Enroll in lessons if any
+    enroll_lessons(student_id, cursor)
+
+    conn.commit()
+    conn.close()
+    print("Student added successfully with selected lessons!")
+
+def enroll_lessons(student_id, cursor):
     cursor.execute('SELECT lesson_id, lesson_name FROM lessons')
     lessons = cursor.fetchall()
     print("Available Lessons:")
     for lesson in lessons:
         print(f"{lesson[0]}. {lesson[1]}")
+    
     lesson_ids = input("Enter the lesson IDs to enroll, separated by commas: ").split(',')
 
     for lesson_id in lesson_ids:
@@ -71,9 +90,6 @@ def add_student(student_id, first_name, last_name, age, grade, registration_date
             print(f"Invalid lesson ID: {lesson_id}. Skipping this lesson.")
             continue
 
-    conn.commit()
-    conn.close()
-    print("Student added successfully with selected lessons!")
 def delete_student(student_id):
     conn = connect_db()
     cursor = conn.cursor()
@@ -84,11 +100,20 @@ def delete_student(student_id):
     print("Student deleted successfully!")
 
 def update_student(student_id, first_name, last_name, age, grade, registration_date):
+    if not validate_date(registration_date):
+        return
+
     conn = connect_db()
     cursor = conn.cursor()
     cursor.execute('''
     UPDATE students SET first_name = ?, last_name = ?, age = ?, grade = ?, registration_date = ?
     WHERE student_id = ?''', (first_name, last_name, age, grade, registration_date, student_id))
+    
+    update_lessons = input("Do you want to update the lessons for this student? (y/n): ")
+    if update_lessons.lower() == 'y':
+        cursor.execute('DELETE FROM student_lessons WHERE student_id = ?', (student_id,))
+        enroll_lessons(student_id, cursor)
+
     conn.commit()
     conn.close()
     print("Student updated successfully!")
@@ -122,11 +147,23 @@ def display_student(student_id):
 def add_lesson(lesson_name):
     conn = connect_db()
     cursor = conn.cursor()
-    cursor.execute('INSERT OR IGNORE INTO lessons (lesson_name) VALUES (?)', (lesson_name,))
+
+    # Check if the lesson name is unique
+    cursor.execute('SELECT lesson_name FROM lessons WHERE lesson_name = ?', (lesson_name,))
+    if cursor.fetchone():
+        print(f"Error: Lesson with name '{lesson_name}' already exists.")
+        conn.close()
+        return None  # Return None if lesson already exists
+
+    # Insert lesson into the lessons table
+    cursor.execute('INSERT INTO lessons (lesson_name) VALUES (?)', (lesson_name,))
+    lesson_id = cursor.lastrowid  # Get the ID of the new lesson
     conn.commit()
     conn.close()
-    print("Lesson added successfully!")
 
+    print(f"Lesson '{lesson_name}' added successfully with ID: {lesson_id}!")
+    return lesson_id 
+    
 def delete_lesson(lesson_id):
     conn = connect_db()
     cursor = conn.cursor()
